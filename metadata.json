@@ -1,0 +1,6 @@
+{
+  "name": "S2J",
+  "description": "Seduluran Sunda Jawa - Platform persaudaraan digital modern Sunda & Jawa yang solid, santun, dan damai.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
