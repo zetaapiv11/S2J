@@ -30,13 +30,34 @@ import {
   Menu,
   X,
   Languages,
-  Copy
+  Copy,
+  Settings,
+  Trash2,
+  Terminal,
+  ArrowLeft,
+  Lock,
+  Music,
+  ExternalLink,
+  MessageSquare,
+  Eye,
+  EyeOff,
+  Download
 } from 'lucide-react';
 
 import { s2jKamus, membersData, initialStories, s2jVoices, galleryItems } from './data';
 import { Member, S2JStory, WordPair } from './types';
 import { KujangSVG, KerisSVG, CrossedKujangKeris } from './components/KujangKerisSVG';
 import { AudioEngine } from './components/AudioEngine';
+import { MemberGrowthChart } from './components/MemberGrowthChart';
+// @ts-ignore
+import eliteBadge from './assets/images/elite_badge_s2j_1780053560254.png';
+
+const isLongTermMember = (m: Member): boolean => {
+  if (m.role === 'owner') return true;
+  if (!m.joinedDate) return false;
+  const date = m.joinedDate.toLowerCase();
+  return date.includes('2024') || date.includes('januari 2025') || date.includes('februari 2025');
+};
 
 export default function App() {
   // Navigation states
@@ -47,6 +68,32 @@ export default function App() {
   const [loading, setLoading] = useState<boolean>(true);
   const [loadingPercent, setLoadingPercent] = useState<number>(0);
   const [hasEntered, setHasEntered] = useState<boolean>(false);
+  const [autoPlayRequest, setAutoPlayRequest] = useState<boolean>(false);
+
+  // Dynamic Members from database
+  const [members, setMembers] = useState<Member[]>(membersData);
+
+  useEffect(() => {
+    let active = true;
+    const fetchMembers = () => {
+      fetch('/api/members')
+        .then(res => res.json())
+        .then(data => {
+          if (active && data && data.members) {
+            setMembers(data.members);
+          }
+        })
+        .catch(err => console.error('Error fetching members:', err));
+    };
+
+    fetchMembers();
+    // Poll every 3.5 seconds to watch for live Discord member updates
+    const interval = setInterval(fetchMembers, 3500);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, []);
 
   // Stories (Guestbook) interaction state
   const [stories, setStories] = useState<S2JStory[]>(() => {
@@ -62,13 +109,161 @@ export default function App() {
   const [memberRoleFilter, setMemberRoleFilter] = useState<'all' | 'owner' | 'admin' | 'member'>('all');
   const [memberSearch, setMemberSearch] = useState<string>('');
 
+  // Dedicated Admin Screen states
+  const [isAdminViewOpen, setIsAdminViewOpen] = useState<boolean>(false);
+  const [adminPasscode, setAdminPasscode] = useState<string>('');
+  const [isAdminUnlocked, setIsAdminUnlocked] = useState<boolean>(false);
+  const [adminError, setAdminError] = useState<string>('');
+
+  // Discord Real Bot Token and Guild configurations
+  const [botToken, setBotToken] = useState<string>('');
+  const [guildId, setGuildId] = useState<string>('');
+  const [showToken, setShowToken] = useState<boolean>(false);
+  const [configSaving, setConfigSaving] = useState<boolean>(false);
+  const [configSavingSuccess, setConfigSavingSuccess] = useState<boolean>(false);
+  const [botSyncing, setBotSyncing] = useState<boolean>(false);
+  const [botSyncResult, setBotSyncResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  // Fetch Saved Discord Bot config from server
+  useEffect(() => {
+    fetch('/api/bot-config')
+      .then(res => {
+        if (res.ok) return res.json();
+        throw new Error('Failed load config');
+      })
+      .then(data => {
+        if (data) {
+          if (data.botToken) setBotToken(data.botToken);
+          if (data.guildId) setGuildId(data.guildId);
+        }
+      })
+      .catch(err => console.warn('Could not load bot-config:', err));
+  }, []);
+
+  // Discord simulation panel states
+  const [discordPanelOpen, setDiscordPanelOpen] = useState<boolean>(false);
+  const [simName, setSimName] = useState<string>('');
+  const [simOrigin, setSimOrigin] = useState<'Sunda' | 'Jawa' | 'Nusantara'>('Nusantara');
+  const [simStatus, setSimStatus] = useState<string>('');
+  const [simulating, setSimulating] = useState<boolean>(false);
+  const [simSuccess, setSimSuccess] = useState<boolean>(false);
+
   // Dictionary UI state
   const [selectedWord, setSelectedWord] = useState<WordPair | null>(s2jKamus[0]);
   const [translatedText, setTranslatedText] = useState<string>('');
   const [translateTarget, setTranslateTarget] = useState<'sunda' | 'jawa'>('sunda');
 
-  // Gallery interactive Lightbox state
-  const [selectedImage, setSelectedImage] = useState<typeof galleryItems[0] | null>(null);
+  // Gallery interactive Lightbox state and Dynamic list state
+  const [gallery, setGallery] = useState<any[]>(galleryItems);
+  const [selectedImage, setSelectedImage] = useState<any | null>(null);
+  
+  // Gallery upload and insert states
+  const [galleryTitle, setGalleryTitle] = useState<string>('');
+  const [gallerySubtitle, setGallerySubtitle] = useState<string>('');
+  const [galleryCategory, setGalleryCategory] = useState<string>('Sunda');
+  const [galleryDescription, setGalleryDescription] = useState<string>('');
+  const [galleryImageBase64, setGalleryImageBase64] = useState<string>('');
+  const [galleryImageUrlField, setGalleryImageUrlField] = useState<string>('');
+  const [galleryUploadType, setGalleryUploadType] = useState<'upload' | 'url'>('upload');
+  const [gallerySaving, setGallerySaving] = useState<boolean>(false);
+  const [galleryError, setGalleryError] = useState<string>('');
+  const [gallerySuccess, setGallerySuccess] = useState<boolean>(false);
+  const [isGalleryFormOpen, setIsGalleryFormOpen] = useState<boolean>(false);
+
+  const fetchGallery = () => {
+    fetch('/api/gallery')
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.gallery) {
+          setGallery(data.gallery);
+        }
+      })
+      .catch(err => console.error('Error loading gallery from server:', err));
+  };
+
+  useEffect(() => {
+    fetchGallery();
+  }, []);
+
+  const handleAddGalleryItem = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!galleryTitle || !galleryCategory || !galleryDescription) {
+      setGalleryError('Mohon lengkapi Judul, Kategori/Suku, dan Deskripsi Karya!');
+      return;
+    }
+
+    if (galleryUploadType === 'upload' && !galleryImageBase64) {
+      setGalleryError('Silakan pilih berkas foto untuk mengunggah!');
+      return;
+    }
+
+    if (galleryUploadType === 'url' && !galleryImageUrlField.trim()) {
+      setGalleryError('Silakan masukkan link URL gambar Anda!');
+      return;
+    }
+
+    setGallerySaving(true);
+    setGalleryError('');
+    setGallerySuccess(false);
+
+    const payload = {
+      title: galleryTitle,
+      subtitle: gallerySubtitle || undefined,
+      category: galleryCategory,
+      description: galleryDescription,
+      imageBase64: galleryUploadType === 'upload' ? galleryImageBase64 : undefined,
+      imageUrl: galleryUploadType === 'url' ? galleryImageUrlField.trim() : undefined
+    };
+
+    fetch('/api/gallery', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+      .then(res => {
+        if (!res.ok) {
+          return res.json().then(data => {
+            throw new Error(data.error || 'Terjadi galat saat menyimpan karya.');
+          });
+        }
+        return res.json();
+      })
+      .then(() => {
+        setGallerySaving(false);
+        setGallerySuccess(true);
+        // Clear inputs
+        setGalleryTitle('');
+        setGallerySubtitle('');
+        setGalleryDescription('');
+        setGalleryImageBase64('');
+        setGalleryImageUrlField('');
+        setIsGalleryFormOpen(false);
+        fetchGallery(); // Reload listing
+        setTimeout(() => setGallerySuccess(false), 5000);
+      })
+      .catch(err => {
+        setGallerySaving(false);
+        setGalleryError(err.message || 'Gagal terhubung dengan server.');
+      });
+  };
+
+  const handleDeleteGalleryItem = (itemId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm('Apakah sedulur yakin ingin menghapus foto karya ini dari galeri S2J?')) return;
+
+    fetch(`/api/gallery/${itemId}`, {
+      method: 'DELETE'
+    })
+      .then(res => {
+        if (res.ok) {
+          fetchGallery();
+          if (selectedImage && selectedImage.id === itemId) {
+            setSelectedImage(null);
+          }
+        }
+      })
+      .catch(err => console.error('Error deleting photo:', err));
+  };
 
   // Time tracker state
   const [timeStr, setTimeStr] = useState<string>('');
@@ -193,6 +388,7 @@ WASSALAMU'ALAIKUM WARAHMATULLAHI WABARAKATUH`;
   const handleEnterApp = () => {
     setHasEntered(true);
     setLoading(false);
+    setAutoPlayRequest(true);
   };
 
   const submitStory = (e: React.FormEvent) => {
@@ -229,7 +425,7 @@ WASSALAMU'ALAIKUM WARAHMATULLAHI WABARAKATUH`;
   };
 
   // Filter members base
-  const filteredMembers = membersData.filter(m => {
+  const filteredMembers = members.filter(m => {
     const matchesRole = memberRoleFilter === 'all' || m.role === memberRoleFilter;
     const matchesSearch = m.username.toLowerCase().includes(memberSearch.toLowerCase()) || 
                           (m.statusText && m.statusText.toLowerCase().includes(memberSearch.toLowerCase()));
@@ -251,6 +447,175 @@ WASSALAMU'ALAIKUM WARAHMATULLAHI WABARAKATUH`;
     }
   };
 
+  // Save Discord Bot Configuration
+  const handleSaveBotConfig = (e: React.FormEvent) => {
+    e.preventDefault();
+    setConfigSaving(true);
+    setConfigSavingSuccess(false);
+
+    fetch('/api/bot-config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ botToken, guildId })
+    })
+      .then(res => {
+        if (!res.ok) throw new Error('Gagal menyimpan konfigurasi');
+        return res.json();
+      })
+      .then(data => {
+        setConfigSaving(false);
+        setConfigSavingSuccess(true);
+        setTimeout(() => setConfigSavingSuccess(false), 3000);
+      })
+      .catch(err => {
+        setConfigSaving(false);
+        alert('Gagal menyimpan konfigurasi: ' + err.message);
+      });
+  };
+
+  // Trigger Live Discord Crawl Sync
+  const handleTriggerDiscordSync = () => {
+    if (!botToken || !guildId) {
+      alert('Tolong lengkapi Bot Token dan Guild ID terlebih dahulu!');
+      return;
+    }
+
+    setBotSyncing(true);
+    setBotSyncResult(null);
+
+    fetch('/api/discord-sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ botToken, guildId })
+    })
+      .then(res => {
+        if (!res.ok) {
+          return res.json().then(data => {
+            throw new Error(data.error || 'Sync failed');
+          });
+        }
+        return res.json();
+      })
+      .then(data => {
+        setBotSyncing(false);
+        setBotSyncResult({
+          success: true,
+          message: data.message || 'Sinkronisasi sukses!'
+        });
+        
+        // Refetch member list immediately to show newly imported users
+        fetch('/api/members')
+          .then(res => res.json())
+          .then(data => {
+            if (data && data.members) {
+              setMembers(data.members);
+            }
+          });
+      })
+      .catch(err => {
+        setBotSyncing(false);
+        setBotSyncResult({
+          success: false,
+          message: 'Error: ' + err.message
+        });
+      });
+  };
+
+  // Simulate a Discord Member Join Webhook Event
+  const handleSimulateDiscordJoin = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!simName.trim()) return;
+
+    setSimulating(true);
+    setSimSuccess(false);
+
+    fetch('/api/discord-webhook', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: simName.trim(),
+        origin: simOrigin,
+        statusText: simStatus.trim() || 'Dulur anyar dari Discord! 🤝🌱',
+        status: 'online',
+        avatarSeed: simName.trim().toLowerCase().replace(/[^a-z0-9]/g, '') || 'avatar',
+        role: 'member',
+        customIcon: '👾'
+      })
+    })
+      .then(res => {
+        if (!res.ok) throw new Error('Network error');
+        return res.json();
+      })
+      .then(data => {
+        setSimulating(false);
+        setSimSuccess(true);
+        // Clean form
+        setSimName('');
+        setSimStatus('');
+        
+        // Instantly force load active members list
+        return fetch('/api/members');
+      })
+      .then(res => res?.json())
+      .then(data => {
+        if (data && data.members) {
+          setMembers(data.members);
+        }
+        setTimeout(() => setSimSuccess(false), 3000);
+      })
+      .catch(err => {
+        console.error('Simulation failed:', err);
+        setSimulating(false);
+      });
+  };
+
+  // Reset dynamically simulated members
+  const handleResetDynamicMembers = () => {
+    fetch('/api/simulate-reset', { method: 'POST' })
+      .then(res => res.json())
+      .then(() => fetch('/api/members'))
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.members) {
+          setMembers(data.members);
+        }
+      })
+      .catch(err => console.error('Reset failed:', err));
+  };
+
+  // Export current list of S2J members as a CSV file
+  const handleExportMembersToCSV = () => {
+    try {
+      const headers = ['ID', 'Username', 'Role', 'Status', 'Status Text', 'Origin Suku', 'Joined Date', 'Color Theme'];
+      
+      const rows = members.map(m => [
+        `"${m.id}"`,
+        `"${(m.username || '').replace(/"/g, '""')}"`,
+        `"${(m.role || '').replace(/"/g, '""')}"`,
+        `"${(m.status || '').replace(/"/g, '""')}"`,
+        `"${(m.statusText || '').replace(/"/g, '""')}"`,
+        `"${(m.origin || '').replace(/"/g, '""')}"`,
+        `"${(m.joinedDate || '').replace(/"/g, '""')}"`,
+        `"${(m.colorTheme || '').replace(/"/g, '""')}"`
+      ]);
+
+      const csvContent = [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+      
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.setAttribute('href', url);
+      link.setAttribute('download', `S2J_Member_Roster_${new Date().toISOString().slice(0, 10)}.csv`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (err) {
+      console.error('Failed to export CSV', err);
+      alert('Gagal mengekspor data anggota ke file CSV.');
+    }
+  };
+
   // Helper smooth scroll to element ID
   const scrollToId = (id: string) => {
     const element = document.getElementById(id);
@@ -261,8 +626,620 @@ WASSALAMU'ALAIKUM WARAHMATULLAHI WABARAKATUH`;
     setMobileMenuOpen(false);
   };
 
+  // Delete a specific dynamic member
+  const handleDeleteMember = (id: string) => {
+    fetch(`/api/members/${id}`, { method: 'DELETE' })
+      .then(res => res.json())
+      .then(() => fetch('/api/members'))
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.members) {
+          setMembers(data.members);
+        }
+      })
+      .catch(err => console.error('Delete failed:', err));
+  };
+
+  // Inline update a member status text or live status
+  const handleUpdateMemberStatus = (id: string, newStatus: 'online' | 'idle' | 'offline', statusText: string) => {
+    fetch(`/api/members/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: newStatus, statusText })
+    })
+      .then(res => res.json())
+      .then(() => fetch('/api/members'))
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.members) {
+          setMembers(data.members);
+        }
+      })
+      .catch(err => console.error('Update failed:', err));
+  };
+
+  // Admin tabs
+  const [activeAdminTab, setActiveAdminTab] = useState<'webhook' | 'members' | 'telemetry'>('webhook');
+
+  // Verify passkey
+  const handleUnlockAdmin = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (adminPasscode.toLowerCase() === 'admins2j') {
+      setIsAdminUnlocked(true);
+      setAdminError('');
+    } else {
+      setAdminError('Passkey salah! Silakan hubungi Administrator S2J.');
+    }
+  };
+
+  if (isAdminViewOpen) {
+    return (
+      <div className="min-h-screen bg-zinc-950 text-amber-50 flex flex-col selection:bg-indigo-900 selection:text-white font-sans relative overflow-x-hidden">
+        {/* Absolute admin background overlay */}
+        <div className="absolute inset-x-0 top-0 h-[200vh] batik-mesh pointer-events-none z-0" />
+        <div className="absolute top-0 right-10 w-[400px] h-[400px] bg-indigo-900/10 rounded-full filter blur-[100px] pointer-events-none z-0" />
+        <div className="absolute bottom-10 left-10 w-[500px] h-[500px] bg-emerald-950/5 rounded-full filter blur-[120px] pointer-events-none z-0" />
+
+        {/* HEADER */}
+        <header className="sticky top-0 z-[50] w-full bg-zinc-950/90 backdrop-blur-md border-b border-zinc-900/80 px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setIsAdminViewOpen(false)}
+              className="p-2 rounded-xl bg-zinc-900 border border-zinc-800 hover:border-zinc-700 hover:text-amber-400 transition-all cursor-pointer"
+              title="Kembali ke Beranda"
+            >
+              <ArrowLeft className="w-4 h-4" />
+            </button>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-mono font-bold text-amber-400 bg-amber-950/30 border border-amber-900/50 px-2 py-0.5 rounded uppercase">
+                  S2J • Control Room
+                </span>
+                <span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+              </div>
+              <p className="text-[10px] text-zinc-500 font-mono uppercase tracking-wider hidden sm:block">Seduluran Sunda Jawa System Administration</p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <span className="text-[10px] font-mono text-zinc-550 uppercase tracking-widest hidden md:inline">SYSTEM SECURE STATUS: OK</span>
+            <button
+              onClick={() => {
+                setIsAdminUnlocked(false);
+                setIsAdminViewOpen(false);
+              }}
+              className="px-4 py-2 bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 rounded-xl text-zinc-200 text-xs font-semibold cursor-pointer"
+            >
+              Keluar Panel
+            </button>
+          </div>
+        </header>
+
+        {/* MAIN BODY */}
+        <main className="flex-grow z-10 relative max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-10">
+          
+          {!isAdminUnlocked ? (
+            /* LOCK SCREEN VIEW */
+            <div className="max-w-md mx-auto my-12 bg-zinc-900/50 border border-zinc-850 p-8 rounded-3xl relative shadow-[0_0_50px_rgba(99,102,241,0.05)] backdrop-blur-md text-center">
+              <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 w-14 h-14 bg-zinc-950 border-2 border-amber-500/40 rounded-full flex items-center justify-center text-amber-400 shadow-[0_0_20px_rgba(234,179,8,0.2)]">
+                <Lock className="w-5 h-5 animate-pulse" />
+              </div>
+
+              <h2 className="text-xl font-serif font-black tracking-wide mt-6 text-zinc-100">
+                S2J Admin Auth
+              </h2>
+              <p className="text-xs text-zinc-400 mt-2 leading-relaxed">
+                Panel ini terproteksi untuk menghindari manipulasi data keluarga S2J.
+              </p>
+
+              <div className="mt-6 p-4 bg-zinc-950/40 border border-zinc-850 rounded-2xl text-left">
+                <p className="text-[11px] text-zinc-400 leading-relaxed font-sans">
+                  💡 <span className="text-amber-400 font-bold">INFO AKURAT:</span> Hanya pengurus terdaftar dan pengembang sistem S2J yang memiliki akses penuh ke panel kontrol utama.
+                </p>
+              </div>
+
+              <form onSubmit={handleUnlockAdmin} className="mt-6 space-y-4">
+                <div className="text-left">
+                  <label className="block text-[10px] font-mono font-bold text-zinc-400 uppercase tracking-widest mb-1.5">Masukan Passkey Admin:*</label>
+                  <input
+                    type="password"
+                    placeholder="Masukkan passkey rahasia..."
+                    value={adminPasscode}
+                    onChange={(e) => setAdminPasscode(e.target.value)}
+                    required
+                    className="w-full bg-zinc-950 border border-zinc-850 rounded-xl px-4 py-3 text-sm text-center font-mono focus:outline-none focus:border-amber-500 tracking-widest"
+                  />
+                </div>
+
+                {adminError && (
+                  <p className="text-red-400 font-sans text-xs">{adminError}</p>
+                )}
+
+                <button
+                  type="submit"
+                  className="w-full py-3 bg-gradient-to-r from-amber-500 to-yellow-600 text-zinc-950 font-bold text-xs uppercase tracking-widest rounded-xl shadow-lg transition-all hover:opacity-90 active:scale-95 cursor-pointer"
+                >
+                  Buka Kunci Sistem
+                </button>
+              </form>
+            </div>
+          ) : (
+            /* UNLOCKED DASHBOARD */
+            <div>
+              
+              {/* Stats Counters Grid */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+                <div className="bg-zinc-900/40 border border-zinc-850 p-4 rounded-2xl backdrop-blur-sm">
+                  <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest block font-bold">TOTAL ANGGOTA</span>
+                  <span className="text-2xl font-black text-amber-500 font-display block mt-1">{members.length}</span>
+                </div>
+                <div className="bg-zinc-900/40 border border-zinc-850 p-4 rounded-2xl backdrop-blur-sm">
+                  <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest block font-bold">SIMULASI DISCORD</span>
+                  <span className="text-2xl font-black text-indigo-400 font-display block mt-1">
+                    {members.filter(m => m.id.startsWith('dc-')).length} IP
+                  </span>
+                </div>
+                <div className="bg-zinc-900/40 border border-zinc-850 p-4 rounded-2xl backdrop-blur-sm">
+                  <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest block font-bold">STATUS GAME ONLINE</span>
+                  <span className="text-2xl font-black text-emerald-400 font-display block mt-1">
+                    {members.filter(m => m.status === 'online').length} Dulur
+                  </span>
+                </div>
+                <div className="bg-zinc-900/40 border border-zinc-850 p-4 rounded-2xl backdrop-blur-sm">
+                  <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest block font-bold">STATUS SERVER</span>
+                  <div className="flex items-center gap-1.5 mt-2">
+                    <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                    <span className="text-xs font-mono font-bold text-emerald-450">AKTIF ON 3000</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* TABS SELECTOR */}
+              <div className="flex flex-wrap border-b border-zinc-900 gap-2 mb-8">
+                {[
+                  { id: 'webhook', label: 'Discord Bot Sync', desc: 'Sistem Token & Live import' },
+                  { id: 'members', label: 'Kelola Member (Showcase)', desc: 'List & Quick status edit' },
+                  { id: 'telemetry', label: 'Sistem Telemetry & Cleans', desc: 'Server states & logs' }
+                ].map((tb) => (
+                  <button
+                    key={tb.id}
+                    onClick={() => setActiveAdminTab(tb.id as any)}
+                    className={`flex-1 sm:flex-initial text-left px-5 py-3 border-b-2 font-display uppercase tracking-wider transition-all duration-2050 cursor-pointer ${
+                      activeAdminTab === tb.id 
+                        ? 'border-indigo-500 text-indigo-400 font-bold bg-indigo-950/20' 
+                        : 'border-transparent text-zinc-500 hover:text-zinc-300 hover:bg-zinc-900/30'
+                    }`}
+                  >
+                    <span className="block text-xs font-black">{tb.label}</span>
+                    <span className="text-[9px] text-zinc-500 tracking-normal font-sans block normal-case font-normal mt-0.5">{tb.desc}</span>
+                  </button>
+                ))}
+              </div>
+
+              {/* TAB CONTENT: DISCORD BOT SYNC */}
+              {activeAdminTab === 'webhook' && (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 animate-fadeIn">
+                  
+                  {/* Left Column: Form Setup */}
+                  <div className="space-y-6">
+                    <div className="bg-zinc-900/40 border border-zinc-850 rounded-2xl p-6 backdrop-blur-sm">
+                      <h3 className="text-base font-serif font-black tracking-wide text-zinc-100 mb-3 flex items-center gap-2">
+                        <Settings className="w-5 h-5 text-indigo-400" />
+                        Konfigurasi Token Bot Discord
+                      </h3>
+                      <p className="text-xs text-zinc-400 leading-relaxed mb-6">
+                        Silakan simpan token Bot Discord S2J dan Server ID Anda di bawah ini. Data token disimpan secara aman di backend server kami dan digunakan untuk memeriksa data roster anggota Anda secara real-time.
+                      </p>
+
+                      <form onSubmit={handleSaveBotConfig} className="space-y-4">
+                        <div>
+                          <label className="block text-[10px] font-mono font-bold text-zinc-400 uppercase mb-1.5 flex items-center justify-between">
+                            <span>TOKEN BOT DISCORD:</span>
+                            <button
+                              type="button"
+                              onClick={() => setShowToken(!showToken)}
+                              className="text-zinc-500 hover:text-indigo-400 text-[9px] font-mono flex items-center gap-1 cursor-pointer"
+                            >
+                              {showToken ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                              <span>{showToken ? 'Sembunyikan' : 'Tampilkan'}</span>
+                            </button>
+                          </label>
+                          <input
+                            type={showToken ? 'text' : 'password'}
+                            placeholder="MTE5ODM0MTU2Mjg4ODM..."
+                            value={botToken}
+                            onChange={(e) => setBotToken(e.target.value)}
+                            className="w-full bg-zinc-950 border border-zinc-850 rounded-xl px-3 py-2.5 text-xs text-zinc-200 focus:outline-none focus:border-indigo-500 font-mono tracking-wider"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[10px] font-mono font-bold text-zinc-400 uppercase mb-1.5 font-sans">
+                            GUILD ID (SERVER ID DISCORD):
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="1195828456889212000"
+                            value={guildId}
+                            onChange={(e) => setGuildId(e.target.value)}
+                            className="w-full bg-zinc-950 border border-zinc-850 rounded-xl px-3 py-2.5 text-xs text-zinc-200 focus:outline-none focus:border-indigo-500 font-mono"
+                          />
+                        </div>
+
+                        <div className="flex gap-3 pt-2">
+                          <button
+                            type="submit"
+                            disabled={configSaving}
+                            className="flex-1 px-4 py-2.5 bg-indigo-650 hover:bg-indigo-600 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                          >
+                            <Check className="w-4 h-4" />
+                            <span>{configSaving ? 'Menyimpan...' : 'Simpan Kredensial Bot'}</span>
+                          </button>
+                        </div>
+
+                        {configSavingSuccess && (
+                          <div className="p-2.5 bg-emerald-950/20 border border-emerald-500/30 rounded-xl text-center text-xs text-emerald-400 flex items-center justify-center gap-1.5">
+                            <Check className="w-4 h-4 animate-bounce" />
+                            <span>Kredensial disimpan! Web-server S2J siap melakukan sinkronisasi. ⚙️</span>
+                          </div>
+                        )}
+                      </form>
+                    </div>
+
+                    {/* Section 2: Trigger Sync Panel */}
+                    <div className="bg-zinc-900/40 border border-zinc-850 rounded-2xl p-6 backdrop-blur-sm">
+                      <h3 className="text-base font-serif font-black tracking-wide text-zinc-100 mb-3 flex items-center gap-2">
+                        <Users className="w-5 h-5 text-emerald-400 animate-pulse" />
+                        Sinkronisasi Live Roster Discord
+                      </h3>
+                      <p className="text-xs text-zinc-400 leading-relaxed mb-6">
+                        Ketuk tombol di bawah untuk membuat server S2J melakukan pemindaian (crawl) langsung ke server Discord Anda menggunakan token bot Anda. Ini akan mengambil seluruh list member aktif Anda secara instan dan menyaring duplikat!
+                      </p>
+
+                      <div className="space-y-4">
+                        <button
+                          onClick={handleTriggerDiscordSync}
+                          disabled={botSyncing || !botToken || !guildId}
+                          className="w-full px-5 py-3.5 bg-gradient-to-r from-emerald-550 via-yellow-500 to-emerald-400 hover:from-emerald-400 hover:to-emerald-500 text-zinc-950 font-display font-black text-xs tracking-wider uppercase rounded-xl shadow-[0_0_20px_rgba(16,185,129,0.15)] flex items-center justify-center gap-2 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          <Music className={`w-4 h-4 text-zinc-950 ${botSyncing ? 'animate-spin' : ''}`} />
+                          <span>{botSyncing ? 'Melakukan Crawl Discord...' : 'Mulai Sinkronisasi Roster'}</span>
+                        </button>
+
+                        {botSyncResult && (
+                          <div className={`p-4 border rounded-xl text-xs flex flex-col gap-1 ${
+                            botSyncResult.success 
+                              ? 'bg-emerald-950/25 border-emerald-500/30 text-emerald-350'
+                              : 'bg-red-950/25 border-red-500/30 text-red-350'
+                          }`}>
+                            <span className="font-bold flex items-center gap-1.5">
+                              {botSyncResult.success ? <Check className="w-4 h-4 font-bold" /> : <AlertTriangle className="w-4 h-4" />}
+                              {botSyncResult.success ? 'Sinkronisasi Selesai!' : 'Sinkronisasi Gagal!'}
+                            </span>
+                            <span className="mt-1 leading-relaxed opacity-90">{botSyncResult.message}</span>
+                          </div>
+                        )}
+
+                        <div className="border-t border-zinc-900/60 pt-4 flex justify-between items-center">
+                          <span className="text-[10px] text-zinc-500 font-mono uppercase">ATAU QUICK SIMULASI / TAMBAH MANUAL</span>
+                          <button
+                            onClick={() => {
+                              const manualName = prompt("Masukkan Username Discord untuk ditambahkan langsung ke list roster:");
+                              if (!manualName || !manualName.trim()) return;
+                              setSimulating(true);
+                              fetch('/api/discord-webhook', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                  username: manualName.trim(),
+                                  origin: 'Nusantara',
+                                  statusText: 'Ditambahkan via Admin Quick Bypass 🚀',
+                                  status: 'online',
+                                  role: 'member',
+                                  customIcon: '👾'
+                                })
+                              })
+                                .then(res => res.json())
+                                .then(() => {
+                                  setSimulating(false);
+                                  alert(`Berhasil menambahkan S2J x ${manualName}!`);
+                                  fetch('/api/members')
+                                    .then(res => res.json())
+                                    .then(data => {
+                                      if (data && data.members) setMembers(data.members);
+                                    });
+                                })
+                                .catch(() => setSimulating(false));
+                            }}
+                            className="text-[10px] font-mono text-zinc-400 hover:text-indigo-400 underline cursor-pointer"
+                          >
+                            + Tambah Cepat (Manual)
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Right Column: Expert Recommendations & Code Builder */}
+                  <div className="bg-zinc-900/40 border border-zinc-850 rounded-2xl p-6 backdrop-blur-sm space-y-6">
+                    <div>
+                      <h3 className="text-base font-serif font-black tracking-wide text-zinc-100 mb-2 flex items-center gap-2">
+                        <Info className="w-5 h-5 text-indigo-400" />
+                        Rekomendasi Setup Bot dari Kami
+                      </h3>
+                      <p className="text-xs text-zinc-400 leading-relaxed">
+                        Ikuti petunjuk konfigurasi di bawah ini agar Bot Discord Anda berhasil diselaras ke website S2J secara otomatis.
+                      </p>
+                    </div>
+
+                    {/* Step-by-step numbers */}
+                    <div className="space-y-4 text-xs">
+                      {/* Step 1 */}
+                      <div className="flex gap-3">
+                        <div className="w-6 h-6 rounded-lg bg-indigo-950 border border-indigo-805 text-indigo-400 font-mono text-xs font-black flex items-center justify-center shrink-0">
+                          1
+                        </div>
+                        <div className="space-y-1">
+                          <h4 className="font-bold text-zinc-200 flex items-center gap-1.5">
+                            <span>Buat Aplikasi di Discord Dev Portal</span>
+                            <a 
+                              href="https://discord.com/developers/applications" 
+                              target="_blank" 
+                              rel="noreferrer" 
+                              className="text-indigo-400 hover:text-indigo-300 inline-block focus:outline-none"
+                              title="Buka Developer Portal"
+                            >
+                              <ExternalLink className="w-3.5 h-3.5 inline text-indigo-400" />
+                            </a>
+                          </h4>
+                          <p className="text-zinc-450 leading-relaxed">
+                            Buka portal developer Discord, buat aplikasi baru (klik <b>"New Application"</b>), beri nama bertema S2J, lalu masuk ke tab <b>"Bot"</b> untuk meregenerasi token bot Anda.
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Step 2 */}
+                      <div className="flex gap-3">
+                        <div className="w-6 h-6 rounded-lg bg-emerald-950 border border-emerald-805 text-emerald-400 font-mono text-xs font-black flex items-center justify-center shrink-0">
+                          2
+                        </div>
+                        <div className="space-y-1">
+                          <h4 className="font-bold text-zinc-200">Aktifkan Privileged Server Members Intent</h4>
+                          <p className="text-zinc-450 leading-relaxed">
+                            Di tab <b>"Bot"</b>, scroll ke bawah ke opsi <b>"Privileged Gateway Intents"</b>. Anda <b>wajib mengaktifkan Server Members Intent</b> (GUILD_MEMBERS) agar bot diijinkan mengakses list anggota server Anda!
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Step 3 */}
+                      <div className="flex gap-3">
+                        <div className="w-6 h-6 rounded-lg bg-yellow-950 border border-yellow-805 text-amber-500 font-mono text-xs font-black flex items-center justify-center shrink-0">
+                          3
+                        </div>
+                        <div className="space-y-1">
+                          <h4 className="font-bold text-zinc-200">Undang Bot & Salin IDs</h4>
+                          <p className="text-zinc-450 leading-relaxed">
+                            Gunakan tab <b>OAuth2 URL Generator</b> di portal dengan scope <code className="bg-zinc-950 px-1 py-0.5 rounded text-[10px] text-rose-350 font-mono">bot</code> untuk mengundang bot masuk ke server Discord Anda. Jangan lupa aktifkan Developer Mode di akun Discord Anda untuk menyalin Server ID.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Developer code block recommendation */}
+                    <div className="border-t border-zinc-900/60 pt-4 space-y-3">
+                      <div>
+                        <span className="block text-[10px] font-mono text-indigo-400 font-extrabold uppercase tracking-widest">📋 CONTOH BOT SCRIPT (NODE.JS DISCORD.JS):</span>
+                        <p className="text-[10px] text-zinc-500 mt-1">Anda juga dapat menjalankan skrip mandiri untuk mem-push user baru secara instan saat bergabung:</p>
+                      </div>
+                      <pre className="bg-zinc-950 border border-zinc-850 p-3 rounded-xl font-mono text-[9px] text-zinc-300 overflow-x-auto select-all max-h-36">
+{`const { Client, GatewayIntentBits } = require('discord.js');
+const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers] });
+
+client.on('guildMemberAdd', member => {
+  fetch('https://zeetasi.qzz.io/api/discord-webhook', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      username: member.user.username,
+      origin: member.user.username.toLowerCase().includes('asep') ? 'Sunda' : 'Nusantara',
+      statusText: 'Hadir bergabung lewat Discord Live Link! 🌱'
+    })
+  }).catch(err => console.error(err));
+});
+
+client.login('TOKEN_BOT_ANDA');`}
+                      </pre>
+                    </div>
+                  </div>
+
+                </div>
+              )}
+
+              {/* TAB CONTENT: MEMBERS */}
+              {activeAdminTab === 'members' && (
+                <div className="bg-zinc-900/40 border border-zinc-850 rounded-2xl p-6 backdrop-blur-sm">
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mb-6">
+                    <div>
+                      <h3 className="text-base font-serif font-black tracking-wide text-zinc-100 flex items-center gap-2">
+                        <Users className="w-5 h-5 text-indigo-400" />
+                        Roster Anggota & Edit Langsung
+                      </h3>
+                      <p className="text-xs text-zinc-400">
+                        Kelola seluruh list anggota. Anda bisa memperbarui status dan mengeluarkan member buatan (Discord Sync) secara instan.
+                      </p>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        onClick={handleExportMembersToCSV}
+                        className="px-4 py-2 bg-emerald-950/40 border border-emerald-500/30 hover:bg-emerald-900/40 text-emerald-400 text-xs font-semibold rounded-xl transition-all cursor-pointer flex items-center gap-2"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Ekspor ke CSV</span>
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          handleResetDynamicMembers();
+                          alert('Berhasil mengosongkan anggota hasil simulasi!');
+                        }}
+                        className="px-4 py-2 bg-red-950/30 border border-red-900/50 hover:bg-red-950/50 text-red-400 text-xs font-semibold rounded-xl transition-all cursor-pointer"
+                      >
+                        Reset Hapus Seluruh Simulasi
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Desktop view table */}
+                  <div className="overflow-x-auto border border-zinc-850 rounded-2xl bg-zinc-950">
+                    <table className="w-full text-left text-xs border-collapse min-w-[700px]">
+                      <thead>
+                        <tr className="border-b border-zinc-850 bg-zinc-900/50 text-zinc-400 font-mono">
+                          <th className="p-4 uppercase tracking-wider">Username</th>
+                          <th className="p-4 uppercase tracking-wider">Asal / Suku</th>
+                          <th className="p-4 uppercase tracking-wider">Role</th>
+                          <th className="p-4 uppercase tracking-wider">Quotes & Status Text</th>
+                          <th className="p-4 uppercase tracking-wider">Status Live</th>
+                          <th className="p-4 uppercase tracking-wider text-right">Aksi</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-zinc-850/80">
+                        {members.map((m) => {
+                          const isDynamic = m.id.startsWith('dc-');
+                          return (
+                            <tr key={m.id} className="hover:bg-zinc-900/40 transition-all">
+                              <td className="p-4 font-semibold text-zinc-100 font-sans">
+                                <span className="flex items-center gap-2">
+                                  <span>{m.username}</span>
+                                  {isDynamic && (
+                                    <span className="text-[9px] bg-indigo-950 border border-indigo-900 text-indigo-400 px-1.5 py-0.5 rounded font-mono font-normal">
+                                      Bot Sync
+                                    </span>
+                                  )}
+                                </span>
+                              </td>
+                              <td className="p-4">
+                                <span className="px-2 py-0.5 bg-zinc-900 rounded border border-zinc-800 font-mono text-zinc-3050">
+                                  {m.origin}
+                                </span>
+                              </td>
+                              <td className="p-4 font-mono text-[10px] font-bold uppercase">{m.role}</td>
+                              <td className="p-4">
+                                <input
+                                  type="text"
+                                  value={m.statusText || ''}
+                                  onChange={(e) => handleUpdateMemberStatus(m.id, m.status as any, e.target.value)}
+                                  className="w-full bg-zinc-900 border border-zinc-800 rounded px-2.5 py-1 text-xs text-zinc-350 focus:outline-none focus:border-indigo-400 font-sans"
+                                  placeholder="Tulis status baru..."
+                                />
+                              </td>
+                              <td className="p-4">
+                                <select
+                                  value={m.status}
+                                  onChange={(e) => handleUpdateMemberStatus(m.id, e.target.value as any, m.statusText || '')}
+                                  className="bg-zinc-900 text-xs rounded border border-zinc-800 bg-black text-zinc-200 px-2 py-1 cursor-pointer font-sans"
+                                >
+                                  <option value="online">🟢 Online</option>
+                                  <option value="idle">🟡 Idle / Ngopi</option>
+                                  <option value="offline">⚪ Offline</option>
+                                </select>
+                              </td>
+                              <td className="p-4 text-right">
+                                {isDynamic ? (
+                                  <button
+                                    onClick={() => handleDeleteMember(m.id)}
+                                    className="p-1.5 rounded-lg bg-red-950/25 text-red-400 hover:text-red-300 border border-red-900/30 hover:bg-red-900/30 cursor-pointer"
+                                    title="Keluarkan & Hapus Member Simulasi"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                ) : (
+                                  <span className="text-[9px] text-zinc-600 font-mono italic">Protected</span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB CONTENT: TELEMETRY */}
+              {activeAdminTab === 'telemetry' && (
+                <div className="bg-zinc-900/40 border border-zinc-850 rounded-2xl p-6 backdrop-blur-sm space-y-6">
+                  <div>
+                    <h3 className="text-base font-serif font-black tracking-wide text-zinc-100 flex items-center gap-2">
+                      <Terminal className="w-5 h-5 text-indigo-400" />
+                      Platform State Telemetry
+                    </h3>
+                    <p className="text-xs text-zinc-400">
+                      Pantau parameter internal, audit server, dan bersihkan data sementara di workspace container.
+                    </p>
+                  </div>
+
+                  {/* Visualisasi data pertumbuhan anggota (Recharts) */}
+                  <MemberGrowthChart members={members} />
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 font-sans">
+                    {/* Server logs */}
+                    <div className="bg-zinc-950 border border-zinc-850 p-5 rounded-2xl font-mono text-xs">
+                      <p className="text-amber-400 font-bold mb-3">&gt; SHOW STACK_TELEMETRY</p>
+                      <div className="space-y-2 text-zinc-400 select-all">
+                        <p className="flex justify-between"><span>Container Service:</span> <span className="text-zinc-200">Express + Vite (Full-stack)</span></p>
+                        <p className="flex justify-between"><span>Node Environment:</span> <span className="text-indigo-400">development</span></p>
+                        <p className="flex justify-between"><span>Incoming Webhook Route:</span> <span className="text-indigo-400">/api/discord-webhook [POST]</span></p>
+                        <p className="flex justify-between"><span>Showcase Reset Route:</span> <span className="text-indigo-400">/api/simulate-reset [POST]</span></p>
+                        <p className="flex justify-between"><span>Persistent Members File:</span> <span className="text-zinc-300 font-semibold">dynamic_members.json</span></p>
+                        <p className="flex justify-between"><span>Gamelan Audio Synth:</span> <span className="text-emerald-400">Web Audio API Active</span></p>
+                      </div>
+                    </div>
+
+                    {/* Master controls actions */}
+                    <div className="bg-zinc-955 border border-zinc-850 p-5 rounded-2xl flex flex-col justify-between">
+                      <div>
+                        <h4 className="text-xs font-bold text-zinc-300 uppercase mb-2">Master Actions</h4>
+                        <p className="text-xs text-zinc-500 leading-relaxed mb-4">
+                          Hapus seluruh anggota buatan yang disinkronisasi lewat webhook simulator, mengembalikan roster showcase S2J ke susunan asli bawaan data utama.
+                        </p>
+                      </div>
+
+                      <div className="space-y-2">
+                        <button
+                          onClick={() => {
+                            handleResetDynamicMembers();
+                            alert('Seluruh member simulasi berhasil dihapus!');
+                          }}
+                          className="w-full py-2.5 bg-red-900 hover:bg-red-800 text-white font-bold text-xs rounded-xl transition-all cursor-pointer"
+                        >
+                          Hapus Database Member Buatan
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            localStorage.clear();
+                            alert('Sajian LocalStorage web-client S2J dikosongkan!');
+                            window.location.reload();
+                          }}
+                          className="w-full py-2.5 bg-zinc-900 hover:bg-zinc-850 text-zinc-400 text-xs font-semibold rounded-xl border border-zinc-800 transition-all cursor-pointer"
+                        >
+                          Clear Client LocalStorage & Reload
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </main>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col selection:bg-emerald-500 selection:text-zinc-950 font-sans relative">
+    <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col selection:bg-emerald-500 selection:text-zinc-950 font-sans relative overflow-x-hidden">
       {/* Absolute background batik overlay */}
       <div className="absolute inset-x-0 top-0 h-[300vh] batik-mesh pointer-events-none z-0" />
       
@@ -318,46 +1295,62 @@ WASSALAMU'ALAIKUM WARAHMATULLAHI WABARAKATUH`;
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 0.7 }}
                 transition={{ delay: 0.7 }}
-                className="text-zinc-400 text-sm max-w-sm font-sans mb-8 leading-relaxed"
+                className="text-zinc-450 text-xs max-w-sm font-sans mb-8 leading-relaxed"
               >
-                Mempersatukan saudara Sunda & Jawa dalam kebersamaan dinten asih, solidaritas rukun selawase.
+                Mempersatukan saudara Sunda & Jawa dalam kebersamaan dinten asih, solidaritas rukun selawase. Nikmati alunan instrumen Degung Sunda & Gamelan Jawa yang tenang saat berselancar.
               </motion.p>
 
               {/* Progress bar and button selector */}
-              <div className="w-64">
+              <div className="w-72">
                 {loadingPercent < 100 ? (
-                  <div className="space-y-2">
-                    <div className="h-[3px] w-full bg-zinc-900 rounded-full overflow-hidden">
+                  <div className="space-y-3">
+                    <div className="h-[4px] w-full bg-zinc-900 rounded-full overflow-hidden border border-zinc-800/40">
                       <div 
-                        className="h-full bg-gradient-to-r from-emerald-500 via-yellow-400 to-emerald-400 transition-all duration-150"
+                        className="h-full bg-gradient-to-r from-emerald-500 via-amber-400 to-emerald-400 transition-all duration-150"
                         style={{ width: `${loadingPercent}%` }}
                       />
                     </div>
-                    <div className="flex justify-between items-center text-[10px] text-zinc-500 font-mono">
-                      <span>Mempersiapkan Gamelan & Degung...</span>
-                      <span>{Math.min(loadingPercent, 100)}%</span>
+                    <div className="flex justify-between items-center text-[10px] text-zinc-400 font-mono">
+                      <span className="flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping inline-block" />
+                        Menyelaraskan Nada Kasuduluran...
+                      </span>
+                      <span className="font-bold text-amber-400">{Math.min(loadingPercent, 100)}%</span>
                     </div>
                   </div>
                 ) : (
-                  <motion.button
-                    id="enter-s2j-btn"
-                    initial={{ scale: 0.9, opacity: 0 }}
-                    animate={{ scale: 1, opacity: 1 }}
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.98 }}
-                    onClick={handleEnterApp}
-                    className="w-full bg-gradient-to-r from-emerald-600 to-yellow-500 text-zinc-950 font-display font-medium text-xs tracking-widest uppercase py-3 rounded-xl shadow-[0_0_20px_rgba(16,185,129,0.3)] hover:shadow-[0_0_25px_rgba(234,179,8,0.4)] transition-all duration-300 flex items-center justify-center gap-2"
-                  >
-                    Masuk Ruang S2J
-                    <ChevronRight className="w-4 h-4 text-zinc-900" />
-                  </motion.button>
+                  <div className="flex flex-col items-center gap-2">
+                    <motion.button
+                      id="enter-s2j-btn"
+                      initial={{ scale: 0.9, opacity: 0 }}
+                      animate={{ scale: 1, opacity: 1 }}
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.98 }}
+                      onClick={handleEnterApp}
+                      className="w-full bg-gradient-to-r from-amber-400 via-yellow-500 to-emerald-500 text-zinc-950 font-display font-black text-xs tracking-widest uppercase py-3.5 rounded-xl shadow-[0_0_25px_rgba(245,158,11,0.25)] hover:shadow-[0_0_35px_rgba(16,185,129,0.35)] transition-all duration-300 flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      <Music className="w-4 h-4 text-zinc-950 animate-pulse" />
+                      Masuk Gerbang Harmoni
+                      <ChevronRight className="w-4 h-4 text-zinc-900" />
+                    </motion.button>
+                    
+                    <motion.span 
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 0.6 }}
+                      className="text-[9px] font-mono text-zinc-500 uppercase tracking-widest mt-1.5"
+                    >
+                      🎵 Ketuk untuk Menghidupkan Tembang Sunda-Jawa
+                    </motion.span>
+                  </div>
                 )}
               </div>
             </div>
             
             {/* Elegant Loading Footer */}
-            <div className="absolute bottom-6 text-[10px] text-zinc-600 font-mono">
-              S2J • SEDULURAN SUNDA JAWA ELITE PLATFORM
+            <div className="absolute bottom-6 text-[10px] text-zinc-650 font-mono tracking-widest uppercase flex items-center gap-1.5">
+              <span>S2J</span>
+              <span>•</span>
+              <span>Seduluran Sunda Jawa Elite Platform</span>
             </div>
           </motion.div>
         )}
@@ -419,7 +1412,7 @@ WASSALAMU'ALAIKUM WARAHMATULLAHI WABARAKATUH`;
             <div className="text-right">
               <div className="text-[10px] text-zinc-400 font-mono tracking-wider flex items-center gap-1.5 justify-end">
                 <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                <span>ONLINE: {membersData.filter(m => m.status === 'online').length} Dulur</span>
+                <span>ONLINE: {members.filter(m => m.status === 'online').length} Dulur</span>
               </div>
               <span className="text-[9px] text-zinc-600 font-mono block">{timeStr}</span>
             </div>
@@ -427,11 +1420,20 @@ WASSALAMU'ALAIKUM WARAHMATULLAHI WABARAKATUH`;
             <button
               id="scroll-to-space-btn"
               onClick={() => scrollToId('assembly')}
-              className="px-4 py-2 bg-zinc-900 border border-emerald-500/20 rounded-xl text-xs font-semibold text-emerald-400 hover:bg-emerald-5050/10 hover:border-emerald-500/40 transition-all duration-300 flex items-center gap-1.5"
+              className="px-3 py-2 bg-zinc-950 border border-zinc-850 hover:bg-zinc-900 rounded-xl text-xs font-semibold text-zinc-400 hover:text-zinc-200 transition-all cursor-pointer"
             >
-              <Sparkles className="w-3.5 h-3.5 text-yellow-400 animate-pulse" />
-              Gabung Obrolan
+              Ruang S2J
             </button>
+            
+            <a
+              href="https://discord.gg/uM2hyMR8X"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-4 py-2 bg-[#5865F2] hover:bg-[#4752C4] rounded-xl text-xs font-bold text-white transition-all duration-300 flex items-center gap-1.5 shadow-md shadow-indigo-950/20 cursor-pointer"
+            >
+              <MessageSquare className="w-3.5 h-3.5 text-white animate-pulse" />
+              Discord S2J 🕊️
+            </a>
           </div>
 
           {/* Hamburger Menu Mobile */}
@@ -476,16 +1478,26 @@ WASSALAMU'ALAIKUM WARAHMATULLAHI WABARAKATUH`;
                 
                 <div className="pt-4 border-t border-zinc-900 flex flex-col gap-2">
                   <div className="flex items-center justify-between text-xs text-zinc-500 px-3">
-                    <span className="font-mono">Online: {membersData.filter(m => m.status === 'online').length} Dulur</span>
+                    <span className="font-mono">Online: {members.filter(m => m.status === 'online').length} Dulur</span>
                     <span className="font-mono text-[9px]">{timeStr}</span>
                   </div>
                   
                   <button
                     onClick={() => scrollToId('assembly')}
-                    className="w-full py-2 bg-emerald-600 text-zinc-950 font-bold text-xs text-center rounded-xl"
+                    className="w-full py-2 bg-zinc-900 hover:bg-zinc-850 text-zinc-300 font-bold text-xs text-center rounded-xl cursor-pointer"
                   >
                     Masuk Ruang S2J
                   </button>
+
+                  <a
+                    href="https://discord.gg/uM2hyMR8X"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full py-2 bg-[#5865F2] hover:bg-[#4752C4] text-white font-bold text-xs text-center rounded-xl flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <MessageSquare className="w-3.5 h-3.5 text-white" />
+                    Gabung Discord S2J
+                  </a>
                 </div>
               </div>
             </motion.div>
@@ -559,41 +1571,51 @@ WASSALAMU'ALAIKUM WARAHMATULLAHI WABARAKATUH`;
               </p>
 
               {/* Grid actions buttons strictly based on request */}
-              <div className="grid grid-cols-2 sm:flex sm:flex-row gap-3 w-full justify-center max-w-md">
+              <div className="grid grid-cols-2 sm:flex sm:flex-row flex-wrap gap-3 w-full justify-center max-w-lg">
                 <button
                   id="hero-masuk-btn"
                   onClick={() => scrollToId('assembly')}
-                  className="px-5 py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-yellow-500 hover:from-emerald-500 hover:to-yellow-400 text-zinc-950 font-bold text-xs tracking-wider uppercase transition-all duration-300 shadow-[0_0_15px_rgba(16,185,129,0.3)] hover:shadow-[0_0_20px_rgba(234,179,8,0.4)]"
+                  className="px-5 py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-yellow-500 hover:from-emerald-500 hover:to-yellow-400 text-zinc-950 font-bold text-xs tracking-wider uppercase transition-all duration-300 shadow-[0_0_15px_rgba(16,185,129,0.3)] hover:shadow-[0_0_20px_rgba(234,179,8,0.4)] cursor-pointer"
                 >
                   Masuk S2J
                 </button>
                 <button
                   id="hero-member-btn"
                   onClick={() => scrollToId('members')}
-                  className="px-5 py-3 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-300 hover:bg-zinc-800 hover:border-zinc-700 font-semibold text-xs tracking-wider uppercase transition-all duration-300"
+                  className="px-5 py-3 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-300 hover:bg-zinc-800 hover:border-zinc-700 font-semibold text-xs tracking-wider uppercase transition-all duration-300 cursor-pointer"
                 >
                   Lihat Member
                 </button>
                 <button
                   id="hero-gallery-btn"
                   onClick={() => scrollToId('gallery')}
-                  className="px-5 py-3 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-300 hover:bg-zinc-800 hover:border-zinc-700 font-semibold text-xs tracking-wider uppercase transition-all duration-300"
+                  className="px-5 py-3 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-300 hover:bg-zinc-800 hover:border-zinc-700 font-semibold text-xs tracking-wider uppercase transition-all duration-300 cursor-pointer"
                 >
                   Gallery S2J
                 </button>
                 <button
                   id="hero-about-btn"
                   onClick={() => scrollToId('about')}
-                  className="px-5 py-3 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-300 hover:bg-zinc-800 hover:border-zinc-700 font-semibold text-xs tracking-wider uppercase transition-all duration-300"
+                  className="px-5 py-3 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-300 hover:bg-zinc-800 hover:border-zinc-700 font-semibold text-xs tracking-wider uppercase transition-all duration-300 cursor-pointer"
                 >
                   Tentang S2J
                 </button>
+                
+                <a
+                  href="https://discord.gg/uM2hyMR8X"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="col-span-2 px-5 py-3 rounded-xl bg-[#5865F2] hover:bg-[#4752C4] text-white font-bold text-xs tracking-wider uppercase transition-all duration-300 flex items-center justify-center gap-1.5 shadow-md shadow-indigo-950/20 hover:shadow-lg hover:shadow-indigo-950/30 cursor-pointer"
+                >
+                  <MessageSquare className="w-4 h-4 text-white animate-pulse" />
+                  <span>Gabung Discord Server S2J 🕊️</span>
+                </a>
               </div>
 
               {/* Counter status indicator bottom Hero */}
               <div className="mt-12 flex items-center gap-6 px-5 py-3 rounded-2xl bg-zinc-900/60 border border-zinc-800/80 backdrop-blur-sm max-w-sm">
                 <div className="text-center">
-                  <span className="block text-xl font-bold font-display text-emerald-400 font-sans">{membersData.length}</span>
+                  <span className="block text-xl font-bold font-display text-emerald-400 font-sans">{members.length}</span>
                   <span className="text-[9px] text-zinc-500 tracking-wider">ANGGOTA ELITE</span>
                 </div>
                 <div className="w-[1px] h-8 bg-zinc-800" />
@@ -827,6 +1849,13 @@ WASSALAMU'ALAIKUM WARAHMATULLAHI WABARAKATUH`;
                       {/* Username */}
                       <h3 className="text-2xl font-serif font-black tracking-wide text-zinc-100 flex items-center gap-2 justify-center">
                         {owner.username}
+                        <img 
+                          src={eliteBadge}
+                          alt="Elite Founder Badge"
+                          title="Elite Founder S2J Badge"
+                          className="w-7 h-7 object-contain inline-block filter drop-shadow-[0_0_6px_rgba(16,185,129,0.5)] animate-pulse"
+                          referrerPolicy="no-referrer"
+                        />
                       </h3>
 
                       {/* Profile details */}
@@ -889,6 +1918,15 @@ WASSALAMU'ALAIKUM WARAHMATULLAHI WABARAKATUH`;
                           </span>
                           <h4 className="text-base font-serif font-extrabold text-zinc-100 flex items-center gap-1.5">
                             {adm.username}
+                            {isLongTermMember(adm) && (
+                              <img 
+                                src={eliteBadge}
+                                alt="Elite Badge"
+                                title="S2J Founder Elite Badge"
+                                className="w-5 h-5 object-contain filter drop-shadow-[0_0_4px_rgba(16,185,129,0.3)]"
+                                referrerPolicy="no-referrer"
+                              />
+                            )}
                           </h4>
                           <span className="text-[10px] text-zinc-500 font-mono uppercase tracking-wider block">
                             ASAL: {adm.origin}
@@ -943,8 +1981,17 @@ WASSALAMU'ALAIKUM WARAHMATULLAHI WABARAKATUH`;
                         </div>
 
                         {/* Name */}
-                        <h4 className="text-xs font-display font-semibold text-zinc-100 tracking-wider hover:text-emerald-400 transition-colors">
-                          {mem.username}
+                        <h4 className="text-xs font-display font-semibold text-zinc-100 tracking-wider hover:text-emerald-400 transition-colors flex items-center justify-center gap-1">
+                          <span>{mem.username}</span>
+                          {isLongTermMember(mem) && (
+                            <img 
+                              src={eliteBadge}
+                              alt="Elite Badge"
+                              title="S2J Founder Elite Badge"
+                              className="w-4 h-4 object-contain filter drop-shadow-[0_0_3px_rgba(16,185,129,0.3)] shrink-0"
+                              referrerPolicy="no-referrer"
+                            />
+                          )}
                         </h4>
 
                         {/* Orig info */}
@@ -1016,7 +2063,7 @@ WASSALAMU'ALAIKUM WARAHMATULLAHI WABARAKATUH`;
               <div className="col-span-1 lg:col-span-5 space-y-6">
                 
                 {/* 1. Synths live stream audio controller */}
-                <AudioEngine />
+                <AudioEngine autoPlayRequest={autoPlayRequest} />
 
                 {/* 2. S2J Interactive Kamus Buddy */}
                 <div className="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-6 shadow-xl relative overflow-hidden backdrop-blur-md">
@@ -1293,6 +2340,28 @@ WASSALAMU'ALAIKUM WARAHMATULLAHI WABARAKATUH`;
                   </div>
                 </div>
 
+                {/* Join Real Discord Server Callout */}
+                <div className="p-4 rounded-xl bg-gradient-to-r from-indigo-950/40 to-zinc-950 border border-indigo-500/20 text-left">
+                  <span className="text-[10px] font-mono font-bold text-[#5c69ee] uppercase tracking-wider block mb-1">
+                    Keluarga Besar S2J di Discord
+                  </span>
+                  <h6 className="text-[11px] font-bold text-zinc-100 font-sans mb-1">
+                    Mencari Server Komunitas Lebih Ramai?
+                  </h6>
+                  <p className="text-[10px] text-zinc-400 leading-relaxed mb-3">
+                    Gabung ke server Discord resmi S2J untuk ngerumpi, karaoke gending, silaturahmi luhur, dan mabar bersama sedulur sedulur lainnya yang aktif 24 jam!
+                  </p>
+                  <a
+                    href="https://discord.gg/uM2hyMR8X"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#5865F2] hover:bg-[#4752C4] text-white font-bold text-xs transition-colors cursor-pointer"
+                  >
+                    <MessageSquare className="w-3.5 h-3.5" />
+                    <span>Gabung Server Discord S2J 👋</span>
+                  </a>
+                </div>
+
               </div>
 
             </div>
@@ -1307,7 +2376,7 @@ WASSALAMU'ALAIKUM WARAHMATULLAHI WABARAKATUH`;
           <div className="max-w-7xl mx-auto">
             
             {/* Gallery title header */}
-            <div className="text-center max-w-2xl mx-auto mb-16">
+            <div className="text-center max-w-2xl mx-auto mb-12">
               <span className="text-xs font-mono font-bold text-emerald-400 tracking-widest uppercase">HASIL KARYA KELUARGA S2J</span>
               <h2 className="text-3xl sm:text-4xl font-serif font-black tracking-wide mt-2">
                 Gallery Keindahan
@@ -1316,11 +2385,224 @@ WASSALAMU'ALAIKUM WARAHMATULLAHI WABARAKATUH`;
               <p className="text-zinc-400 text-sm mt-6">
                 Representasi artistik modern kebudayaan serta alam Sunda dan Jawa yang rukun, damai, dan asri. Klik gambar untuk melihat makna luhurnya.
               </p>
+
+              <div className="mt-8 flex justify-center">
+                <button
+                  onClick={() => setIsGalleryFormOpen(!isGalleryFormOpen)}
+                  className="px-6 py-2.5 rounded-full bg-gradient-to-r from-emerald-600 via-yellow-500 to-emerald-700 hover:from-emerald-500 hover:to-emerald-600 text-white font-bold text-xs sm:text-sm shadow-lg shadow-emerald-900/20 active:scale-95 transition-all flex items-center gap-2 border border-emerald-400/30 cursor-pointer"
+                >
+                  <Plus className="w-4 h-4 text-emerald-100" />
+                  <span>{isGalleryFormOpen ? 'Tutup Form' : 'Bagikan Karya Foto Baru'}</span>
+                </button>
+              </div>
+
+              {/* UPLOAD FORM PANEL */}
+              {isGalleryFormOpen && (
+                <div className="mt-10 max-w-2xl mx-auto bg-zinc-900/95 border border-zinc-800 p-6 sm:p-8 rounded-3xl shadow-2xl relative overflow-hidden animate-fadeIn text-left">
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/5 rounded-full filter blur-2xl pointer-events-none" />
+                  
+                  <div className="flex items-center justify-between mb-6">
+                    <h3 className="text-lg font-serif font-bold text-zinc-100 flex items-center gap-2">
+                      <ImageIcon className="w-5 h-5 text-emerald-400" />
+                      <span>Unggah Foto Karya Keindahan</span>
+                    </h3>
+                    <button 
+                      type="button"
+                      onClick={() => setIsGalleryFormOpen(false)}
+                      className="text-zinc-500 hover:text-zinc-300 p-1"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  <form onSubmit={handleAddGalleryItem} className="space-y-5 text-left">
+                    {galleryError && (
+                      <div className="p-3 bg-red-950/40 border border-red-900 text-red-400 text-xs rounded-xl font-medium">
+                        ⚠️ {galleryError}
+                      </div>
+                    )}
+                    {gallerySuccess && (
+                      <div className="p-3 bg-emerald-950/40 border border-emerald-900 text-emerald-400 text-xs rounded-xl font-medium">
+                        🎉 Berhasil menambahkan foto baru ke Galeri S2J!
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-[11px] font-mono font-bold text-zinc-400 uppercase mb-1.5">
+                          Judul Foto Karya <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          value={galleryTitle}
+                          onChange={(e) => setGalleryTitle(e.target.value)}
+                          placeholder="Contoh: Senja di Kawah Putih"
+                          className="w-full bg-zinc-950 border border-zinc-800 p-3 rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-emerald-500 whitespace-nowrap"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-mono font-bold text-zinc-400 uppercase mb-1.5">
+                          Sub-Judul / Lokasi
+                        </label>
+                        <input
+                          type="text"
+                          value={gallerySubtitle}
+                          onChange={(e) => setGallerySubtitle(e.target.value)}
+                          placeholder="Contoh: Bandung, Jawa Barat"
+                          className="w-full bg-zinc-950 border border-zinc-800 p-3 rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-emerald-500"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-[11px] font-mono font-bold text-zinc-400 uppercase mb-1.5">
+                          Kategori Budaya/Suku <span className="text-red-500">*</span>
+                        </label>
+                        <select
+                          value={galleryCategory}
+                          onChange={(e) => setGalleryCategory(e.target.value)}
+                          className="w-full bg-zinc-950 border border-zinc-800 p-3 rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-emerald-500"
+                        >
+                          <option value="Sunda">Sunda</option>
+                          <option value="Jawa">Jawa</option>
+                          <option value="Kolaborasi">Kolaborasi</option>
+                          <option value="Sajak Motif">Sajak Motif</option>
+                          <option value="Ruang Santai">Ruang Santai</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-mono font-bold text-zinc-400 uppercase mb-1.5">
+                          Metode Pengunggahan Gambar
+                        </label>
+                        <div className="grid grid-cols-2 bg-zinc-950 p-1 rounded-xl border border-zinc-8050">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setGalleryUploadType('upload');
+                              setGalleryError('');
+                            }}
+                            className={`py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer ${
+                              galleryUploadType === 'upload'
+                                ? 'bg-zinc-900 text-emerald-400 border border-zinc-800'
+                                : 'text-zinc-500 hover:text-zinc-300'
+                            }`}
+                          >
+                            Unggah Foto
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setGalleryUploadType('url');
+                              setGalleryError('');
+                            }}
+                            className={`py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer ${
+                              galleryUploadType === 'url'
+                                ? 'bg-zinc-900 text-emerald-400 border border-zinc-800'
+                                : 'text-zinc-500 hover:text-zinc-300'
+                            }`}
+                          >
+                            Link URL Foto
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {galleryUploadType === 'upload' ? (
+                      <div>
+                        <label className="block text-[11px] font-mono font-bold text-zinc-400 uppercase mb-1.5">
+                          Pilih Berkas Foto <span className="text-red-500">*</span>
+                        </label>
+                        <div className="border border-dashed border-zinc-800 hover:border-emerald-500/50 bg-zinc-950/80 p-5 rounded-2xl text-center relative group transition-colors cursor-pointer">
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) {
+                                if (file.size > 14 * 1024 * 1024) {
+                                  setGalleryError('Ukuran berkas melebihi batas (maksimal 14MB). Gunakan berkas foto lebih kecil.');
+                                  return;
+                                }
+                                const reader = new FileReader();
+                                reader.onloadend = () => {
+                                  setGalleryImageBase64(reader.result as string);
+                                  setGalleryError('');
+                                };
+                                reader.readAsDataURL(file);
+                              }
+                            }}
+                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20"
+                          />
+                          {galleryImageBase64 ? (
+                            <div className="flex flex-col items-center gap-2">
+                              <img src={galleryImageBase64} alt="Preview" className="w-32 h-32 object-cover rounded-xl border border-zinc-800" />
+                              <p className="text-[10px] text-emerald-400 font-mono">Foto terpilih! Klik di sini untuk mengganti.</p>
+                            </div>
+                          ) : (
+                            <div className="py-2 flex flex-col items-center gap-1.5 text-zinc-500 group-hover:text-zinc-300 transition-colors">
+                              <ImageIcon className="w-8 h-8 opacity-60 group-hover:scale-105 transition-transform" />
+                              <p className="text-xs font-semibold">Klik atau seret foto kesini</p>
+                              <p className="text-[9px] font-mono">Format PNG, JPG, JPEG (Maks. 14MB)</p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <div>
+                        <label className="block text-[11px] font-mono font-bold text-zinc-400 uppercase mb-1.5">
+                          Link URL Gambar (HTTPS) <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          type="url"
+                          required={galleryUploadType === 'url'}
+                          value={galleryImageUrlField}
+                          onChange={(e) => setGalleryImageUrlField(e.target.value)}
+                          placeholder="https://images.unsplash.com/... atau link gambar HTTPS lainnya"
+                          className="w-full bg-zinc-950 border border-zinc-800 p-3 rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-emerald-500 font-mono"
+                        />
+                      </div>
+                    )}
+
+                    <div>
+                      <label className="block text-[11px] font-mono font-bold text-zinc-400 uppercase mb-1.5">
+                        Makna Keindahan / Filosofi Karya <span className="text-red-500">*</span>
+                      </label>
+                      <textarea
+                        required
+                        rows={3}
+                        value={galleryDescription}
+                        onChange={(e) => setGalleryDescription(e.target.value)}
+                        placeholder="Deskripsikan filosofi, nilai luhur, atau keasrian objek yang ada pada gambar ini..."
+                        className="w-full bg-zinc-950 border border-zinc-800 p-3 rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-emerald-500 resize-none leading-relaxed"
+                      />
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={gallerySaving}
+                      className="w-full py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-black text-xs uppercase tracking-wider transition-all disabled:opacity-50 cursor-pointer shadow-md shadow-emerald-500/10 flex items-center justify-center gap-1.5"
+                    >
+                      {gallerySaving ? (
+                        <>
+                          <div className="w-3.5 h-3.5 rounded-full border-t border-r border-zinc-950 animate-spin" />
+                          <span>Mengunggah Karya Berharga...</span>
+                        </>
+                      ) : (
+                        <span>Simpan dan Bagikan ke Galeri S2J 🕊️</span>
+                      )}
+                    </button>
+                  </form>
+                </div>
+              )}
             </div>
 
             {/* Masonry image layout */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-              {galleryItems.map((item) => (
+              {gallery.map((item) => (
                 <div
                   key={item.id}
                   onClick={() => setSelectedImage(item)}
@@ -1333,10 +2615,21 @@ WASSALAMU'ALAIKUM WARAHMATULLAHI WABARAKATUH`;
                       src={item.imageUrl}
                       alt={item.title}
                       className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
+                      referrerPolicy="no-referrer"
                     />
                     <span className="absolute top-4 left-4 z-20 text-[9px] uppercase tracking-widest px-2.5 py-1 rounded-full bg-zinc-900/90 text-yellow-400 border border-yellow-500/20 font-mono">
                       {item.category}
                     </span>
+
+                    {item.isUserUploaded && (
+                      <button
+                        onClick={(e) => handleDeleteGalleryItem(item.id, e)}
+                        className="absolute top-4 right-4 z-20 p-2 rounded-full bg-red-950/80 hover:bg-red-900 border border-red-500/30 text-red-400 hover:text-white transition-colors"
+                        title="Hapus Foto"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
 
                   {/* Body textual area info */}
@@ -1344,14 +2637,14 @@ WASSALAMU'ALAIKUM WARAHMATULLAHI WABARAKATUH`;
                     <span className="text-[10px] font-mono text-emerald-400 uppercase tracking-widest block mb-1">
                       {item.subtitle}
                     </span>
-                    <h3 className="text-xl font-serif font-bold text-zinc-100 group-hover:text-yellow-400 transition-colors">
+                    <h3 className="text-xl font-serif font-bold text-zinc-100 group-hover:text-yellow-400 transition-colors truncate">
                       {item.title}
                     </h3>
                     <p className="text-zinc-400 text-xs leading-relaxed mt-2 line-clamp-2">
                       {item.description}
                     </p>
                     
-                    <div className="mt-4 pt-3 border-t border-zinc-8050 flex items-center justify-between text-[10px] text-zinc-500 font-mono">
+                    <div className="mt-4 pt-3 border-t border-zinc-800 flex items-center justify-between text-[10px] text-zinc-500 font-mono">
                       <span>Bumi Nusantara</span>
                       <span className="text-yellow-400 hover:underline flex items-center gap-1">
                         Lihat filosofi <ChevronRight className="w-3 h-3" />
@@ -1843,8 +3136,20 @@ WASSALAMU'ALAIKUM WARAHMATULLAHI WABARAKATUH`;
             <p className="text-zinc-500 text-xs font-sans">
               &copy; {new Date().getFullYear()} S2J (Seduluran Sunda Jawa). Dibuat dengan cinta luhur budaya Indonesia.
             </p>
-            <p className="text-[10px] text-zinc-600 font-mono tracking-wider mt-1.5 flex items-center justify-center md:justify-end gap-1.5">
+            <p className="text-[10px] text-zinc-600 font-mono tracking-wider mt-1.5 flex flex-wrap items-center justify-center md:justify-end gap-3">
               <span>Time: {timeStr}</span>
+              <span className="text-zinc-800">•</span>
+              <button
+                onClick={() => {
+                  setAdminPasscode('');
+                  setAdminError('');
+                  setIsAdminViewOpen(true);
+                }}
+                className="hover:text-amber-400 bg-zinc-900 border border-zinc-850 px-2 py-0.5 rounded text-[9px] uppercase transition-all flex items-center gap-1 cursor-pointer"
+              >
+                <Settings className="w-2.5 h-2.5" />
+                <span>Admin Portal</span>
+              </button>
             </p>
           </div>
 
